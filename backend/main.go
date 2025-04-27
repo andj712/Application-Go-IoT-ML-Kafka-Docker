@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
+	"log"
+
+	"github.com/segmentio/kafka-go"
 )
 
 type DeviceData struct {
@@ -12,31 +15,30 @@ type DeviceData struct {
 	Humidity    float64 `json:"humidity"`
 }
 
-func handleData(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Only POST allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var data DeviceData
-	err := json.NewDecoder(r.Body).Decode(&data)
-	if err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	fmt.Printf("Received data: %+v\n", data)
-
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Data received"))
-}
-
 func main() {
-	http.HandleFunc("/data", handleData)
+	// Kafka reader konfiguracija
+	reader := kafka.NewReader(kafka.ReaderConfig{
+		Brokers: []string{"localhost:9092"},
+		Topic:   "iot-topic",
+		GroupID: "iot-backend-group",
+	})
+	defer reader.Close()
 
-	fmt.Println("Server is running on port 8080...")
-	err := http.ListenAndServe(":8080", nil)
-	if err != nil {
-		fmt.Println("Error starting server:", err)
+	fmt.Println("Backend Kafka reader started, listening on topic iot-topic...")
+
+	for {
+		m, err := reader.ReadMessage(context.Background())
+		if err != nil {
+			log.Println("ReadMessage error:", err)
+			continue
+		}
+
+		var data DeviceData
+		if err := json.Unmarshal(m.Value, &data); err != nil {
+			log.Println("Unmarshal error:", err)
+			continue
+		}
+
+		fmt.Printf("Received from Kafka: %+v\n", data)
 	}
 }

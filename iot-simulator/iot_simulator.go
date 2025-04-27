@@ -1,65 +1,62 @@
 package main
 
 import (
-    "bytes"
-    "encoding/json"
-    "math/rand"
-    "net/http"
-    "time"
-    "fmt"
+	"context"
+	"encoding/json"
+	"fmt"
+	"math/rand"
+	"time"
+
+	"github.com/segmentio/kafka-go"
 )
 
 type DeviceData struct {
-    DeviceID    string  `json:"device_id"`
-    Temperature float64 `json:"temperature"`
-    Humidity    float64 `json:"humidity"`
+	DeviceID    string  `json:"device_id"`
+	Temperature float64 `json:"temperature"`
+	Humidity    float64 `json:"humidity"`
 }
 
 func generateRandomData(deviceID string) DeviceData {
-    return DeviceData{
-        DeviceID:    deviceID,
-        Temperature: 20.0 + rand.Float64()*15.0, // Temperatura između 20-35°C
-        Humidity:    30.0 + rand.Float64()*40.0, // Vlažnost između 30-70%
-    }
-}
-
-func sendData(url string, data DeviceData) error {
-    jsonData, err := json.Marshal(data)
-    if err != nil {
-        return err
-    }
-
-    resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
-    if err != nil {
-        return err
-    }
-    defer resp.Body.Close()
-
-    if resp.StatusCode != http.StatusOK {
-        return fmt.Errorf("server returned status code %d", resp.StatusCode)
-    }
-
-    return nil
+	return DeviceData{
+		DeviceID:    deviceID,
+		Temperature: 20.0 + rand.Float64()*15.0,
+		Humidity:    30.0 + rand.Float64()*40.0,
+	}
 }
 
 func main() {
-    rand.Seed(time.Now().UnixNano())
+	rand.Seed(time.Now().UnixNano())
 
-    deviceIDs := []string{"sensor-1", "sensor-2", "sensor-3"} // 3 uređaja
-    serverURL := "http://localhost:8080/data"
+	// Kafka writer konfiguracija
+	writer := kafka.NewWriter(kafka.WriterConfig{
+		Brokers: []string{"localhost:9092"},
+		Topic:   "iot-topic",
+	})
+	defer writer.Close()
 
-    for {
-        for _, deviceID := range deviceIDs {
-            data := generateRandomData(deviceID)
+	deviceIDs := []string{"sensor-1", "sensor-2", "sensor-3"}
 
-            err := sendData(serverURL, data)
-            if err != nil {
-                fmt.Println("Error sending data:", err)
-            } else {
-                fmt.Printf("Sent data: %+v\n", data)
-            }
-        }
+	for {
+		for _, id := range deviceIDs {
+			data := generateRandomData(id)
+			// serijalizacija u JSON
+			value, err := json.Marshal(data)
+			if err != nil {
+				fmt.Println("Marshal error:", err)
+				continue
+			}
 
-        time.Sleep(5 * time.Second)
-    }
+			msg := kafka.Message{
+				Key:   []byte(data.DeviceID),
+				Value: value,
+			}
+
+			if err := writer.WriteMessages(context.Background(), msg); err != nil {
+				fmt.Println("WriteMessages error:", err)
+			} else {
+				fmt.Printf("Sent to Kafka: %+v\n", data)
+			}
+		}
+		time.Sleep(5 * time.Second)
+	}
 }

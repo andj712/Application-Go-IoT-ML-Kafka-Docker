@@ -1,4 +1,4 @@
-module backend
+module github.com/andj712/Application-Go-IoT-ML-Kafka-Docker/iot-simulator
 
 go 1.24.2
 
